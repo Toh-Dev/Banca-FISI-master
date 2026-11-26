@@ -680,68 +680,98 @@ public class RegisterFrame extends JFrame {
         String telefono = txtTelefono.getText().trim();
         String password = new String(txtPassword.getPassword());
         String confirmPassword = new String(txtConfirmPassword.getPassword());
-        
+
+        if (!validarDatosRegistro(dni, nombre, apellido, email, password, confirmPassword)) {
+            return;
+        }
+
+        if (!validarDniDisponible(dni)) {
+            return;
+        }
+
+        User newUser = construirNuevoUsuario(dni, nombre, apellido, email, telefono);
+        procesarRegistroUsuario(newUser, password);
+    }
+
+    private boolean validarDatosRegistro(String dni, String nombre, String apellido, String email, String password, String confirmPassword) {
         if (dni.isEmpty() || nombre.isEmpty() || apellido.isEmpty() || email.isEmpty() || password.isEmpty()) {
             showError("Complete todos los campos obligatorios");
-            return;
+            return false;
         }
-        
+
         if (dni.length() != 8 || !dni.matches("\\d+")) {
             showError("El DNI debe tener exactamente 8 dígitos");
-            return;
+            return false;
         }
-        
+
         if (!email.contains("@")) {
             showError("Ingrese un email válido");
-            return;
+            return false;
         }
-        
+
         if (password.length() < 4) {
             showError("La contraseña debe tener al menos 4 caracteres");
-            return;
+            return false;
         }
-        
+
         if (!password.equals(confirmPassword)) {
             showError("Las contraseñas no coinciden");
-            return;
+            return false;
         }
-        
-        User existingUser = userDAO.obtenerPorDni(dni);
-        if (existingUser != null) {
+
+        return true;
+    }
+
+    private boolean validarDniDisponible(String dni) {
+        if (userDAO.obtenerPorDni(dni) != null) {
             showError("Ya existe un usuario registrado con este DNI");
-            return;
+            return false;
         }
-        
+        return true;
+    }
+
+    private User construirNuevoUsuario(String dni, String nombre, String apellido, String email, String telefono) {
         User newUser = new User();
         newUser.setDni(dni);
         newUser.setNombre(nombre);
         newUser.setApellido(apellido);
         newUser.setEmail(email);
         newUser.setTelefono(telefono);
-        
+        return newUser;
+    }
+
+    private void procesarRegistroUsuario(User newUser, String password) {
         if (userDAO.registrar(newUser, password)) {
-            String numeroCuenta = generarNumeroCuenta();
-            
-            Account nuevaCuenta = new Account();
-            nuevaCuenta.setUsuarioId(newUser.getId());
-            nuevaCuenta.setNumeroCuenta(numeroCuenta);
-            nuevaCuenta.setTipoCuenta(TipoCuenta.AHORROS);
-            nuevaCuenta.setSaldo(BigDecimal.ZERO);
-            nuevaCuenta.setMoneda(Moneda.PEN);
-            
-            if (accountDAO.crearCuenta(nuevaCuenta)) {
-                showSuccess("¡Registro exitoso!\n\nUsuario: " + newUser.getNombreCompleto() + 
-                            "\nCuenta: " + numeroCuenta + "\nTipo: Ahorros en Soles");
-                
-                List<Account> cuentas = accountDAO.obtenerCuentasPorUsuario(newUser.getId());
-                new DashboardFrame(newUser, cuentas); 
-                dispose();
-            } else {
-                showWarning("Usuario creado pero error al crear cuenta.\nContacte al administrador.");
-            }
+            crearCuentaInicialUsuario(newUser);
         } else {
             showError("Error al registrar usuario");
         }
+    }
+
+    private void crearCuentaInicialUsuario(User newUser) {
+        String numeroCuenta = generarNumeroCuenta();
+        Account nuevaCuenta = construirCuentaInicial(newUser.getId(), numeroCuenta);
+
+        if (accountDAO.crearCuenta(nuevaCuenta)) {
+            showSuccess("¡Registro exitoso!\n\nUsuario: " + newUser.getNombreCompleto() +
+                        "\nCuenta: " + numeroCuenta + "\nTipo: Ahorros en Soles");
+
+            List<Account> cuentas = accountDAO.obtenerCuentasPorUsuario(newUser.getId());
+            new DashboardFrame(newUser, cuentas);
+            dispose();
+        } else {
+            showWarning("Usuario creado pero error al crear cuenta.\nContacte al administrador.");
+        }
+    }
+
+    private Account construirCuentaInicial(int usuarioId, String numeroCuenta) {
+        Account nuevaCuenta = new Account();
+        nuevaCuenta.setUsuarioId(usuarioId);
+        nuevaCuenta.setNumeroCuenta(numeroCuenta);
+        nuevaCuenta.setTipoCuenta(TipoCuenta.AHORROS);
+        nuevaCuenta.setSaldo(BigDecimal.ZERO);
+        nuevaCuenta.setMoneda(Moneda.PEN);
+        return nuevaCuenta;
     }
 
     private String generarNumeroCuenta() {

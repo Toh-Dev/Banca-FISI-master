@@ -4,6 +4,7 @@ import com.bancamovil.dao.AccountDAO;
 import com.bancamovil.dao.CardDAO;
 import com.bancamovil.models.Account;
 import com.bancamovil.models.Card;
+import com.bancamovil.models.Card.TipoTarjeta;
 import com.bancamovil.models.User;
 import com.bancamovil.utils.CardUtils;
 
@@ -414,100 +415,102 @@ public class NewCardPanel extends JPanel {
     // ════════════════════════════════════════════════════════════════════════
 
     private void solicitarTarjeta() {
-        try {
-            String tipoSeleccionado = (String) comboTipoTarjeta.getSelectedItem();
-            String tipoTarjeta = tipoSeleccionado.contains("Débito") ? "DEBITO" : "CREDITO";
-            String red = (String) comboRed.getSelectedItem();
-            boolean esDebito = "DEBITO".equals(tipoTarjeta);
+      try {
+         String tipoSeleccionado = (String) this.comboTipoTarjeta.getSelectedItem();
+         boolean esDebito = tipoSeleccionado.contains("Débito");
+         String tipoTarjeta = esDebito ? "DEBITO" : "CREDITO";
+         String red = (String) this.comboRed.getSelectedItem();
 
-            if (esDebito && comboCuentas.getSelectedItem() == null) {
-                JOptionPane.showMessageDialog(this,
-                        "Debe seleccionar una cuenta para vincular la tarjeta de débito.",
-                        "Error", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
+         if (!validarCuentaVinculada(esDebito)) {
+            return;
+         }
 
-            if (!esDebito && checkVincularCuenta.isSelected() && comboCuentas.getSelectedItem() == null) {
-                JOptionPane.showMessageDialog(this,
-                        "Debe seleccionar una cuenta para vincular.",
-                        "Error", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
+         if (!confirmarSolicitudTarjeta(tipoTarjeta, red)) {
+            return;
+         }
 
-            String mensaje = "¿Confirma la solicitud de una tarjeta de " + tipoTarjeta + " " + red + "?";
-            int confirmacion = JOptionPane.showConfirmDialog(this, mensaje,
-                    "Confirmar Solicitud", JOptionPane.YES_NO_OPTION);
+         Card nuevaTarjeta = construirNuevaTarjeta(tipoTarjeta, red, esDebito);
+         procesarCreacionTarjeta(nuevaTarjeta, tipoTarjeta, red);
+      } catch (NumberFormatException ex) {
+         JOptionPane.showMessageDialog(this, "El límite de crédito debe ser un número válido.", "Error", JOptionPane.ERROR_MESSAGE);
+      } catch (Exception e) {
+         JOptionPane.showMessageDialog(this, "Error: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+         e.printStackTrace();
+      }
+   }
 
-            if (confirmacion != JOptionPane.YES_OPTION) return;
+   private boolean validarCuentaVinculada(boolean esDebito) {
+      boolean sinCuentaSeleccionada = this.comboCuentas.getSelectedItem() == null;
+      if (esDebito && sinCuentaSeleccionada) {
+         JOptionPane.showMessageDialog(this, "Debe seleccionar una cuenta para vincular la tarjeta de débito.", "Error", JOptionPane.ERROR_MESSAGE);
+         return false;
+      }
+      if (!esDebito && this.checkVincularCuenta.isSelected() && sinCuentaSeleccionada) {
+         JOptionPane.showMessageDialog(this, "Debe seleccionar una cuenta para vincular.", "Error", JOptionPane.ERROR_MESSAGE);
+         return false;
+      }
+      return true;
+   }
 
-            Card nuevaTarjeta = new Card();
+   private boolean confirmarSolicitudTarjeta(String tipoTarjeta, String red) {
+      String mensaje = "¿Confirma la solicitud de una tarjeta de " + tipoTarjeta + " " + red + "?";
+      int confirmacion = JOptionPane.showConfirmDialog(this, mensaje, "Confirmar Solicitud", JOptionPane.YES_NO_OPTION);
+      return confirmacion == JOptionPane.YES_OPTION;
+   }
 
-            String numeroTarjeta;
-            do {
-                numeroTarjeta = CardUtils.generarNumeroTarjeta(red, null);
-            } while (cardDAO.existeNumeroTarjeta(numeroTarjeta));
+   private Card construirNuevaTarjeta(String tipoTarjeta, String red, boolean esDebito) {
+      Card nuevaTarjeta = new Card();
+      nuevaTarjeta.setNumeroTarjeta(generarNumeroTarjetaUnico(red));
+      nuevaTarjeta.setTipoTarjeta(TipoTarjeta.valueOf(tipoTarjeta));
+      nuevaTarjeta.setNombreTitular(this.user.getNombreCompleto().toUpperCase());
+      nuevaTarjeta.setFechaVencimiento(CardUtils.generarFechaVencimiento());
+      nuevaTarjeta.setCvv(CardUtils.generarCVV());
+      nuevaTarjeta.setActiva(true);
+      nuevaTarjeta.setCuentaId(obtenerCuentaVinculadaId(esDebito));
+      nuevaTarjeta.setLimiteCredito(obtenerLimiteCredito(esDebito));
+      return nuevaTarjeta;
+   }
 
-            nuevaTarjeta.setNumeroTarjeta(numeroTarjeta);
-            nuevaTarjeta.setTipoTarjeta(Card.TipoTarjeta.valueOf(tipoTarjeta));
-            nuevaTarjeta.setNombreTitular(user.getNombreCompleto().toUpperCase());
-            nuevaTarjeta.setFechaVencimiento(CardUtils.generarFechaVencimiento());
-            nuevaTarjeta.setCvv(CardUtils.generarCVV());
-            nuevaTarjeta.setActiva(true);
+   private String generarNumeroTarjetaUnico(String red) {
+      String numeroTarjeta;
+      do {
+         numeroTarjeta = CardUtils.generarNumeroTarjeta(red, null);
+      } while (this.cardDAO.existeNumeroTarjeta(numeroTarjeta));
+      return numeroTarjeta;
+   }
 
-            if (esDebito || checkVincularCuenta.isSelected()) {
-                Account cuentaSeleccionada = (Account) comboCuentas.getSelectedItem();
-                nuevaTarjeta.setCuentaId(cuentaSeleccionada.getId());
-            } else {
-                nuevaTarjeta.setCuentaId(null);
-            }
+   private Integer obtenerCuentaVinculadaId(boolean esDebito) {
+      if (!esDebito && !this.checkVincularCuenta.isSelected()) {
+         return null;
+      }
+      Account cuentaSeleccionada = (Account) this.comboCuentas.getSelectedItem();
+      return cuentaSeleccionada.getId();
+   }
 
-            if (!esDebito) {
-                String limiteStr = txtLimiteCredito.getText().trim();
-                if (!limiteStr.isEmpty()) {
-                    nuevaTarjeta.setLimiteCredito(new BigDecimal(limiteStr));
-                } else {
-                    nuevaTarjeta.setLimiteCredito(new BigDecimal("5000.00"));
-                }
-            } else {
-                nuevaTarjeta.setLimiteCredito(null);
-            }
+   private BigDecimal obtenerLimiteCredito(boolean esDebito) {
+      if (esDebito) {
+         return null;
+      }
+      String limiteStr = this.txtLimiteCredito.getText().trim();
+      return limiteStr.isEmpty() ? new BigDecimal("5000.00") : new BigDecimal(limiteStr);
+   }
 
-            if (cardDAO.crearTarjeta(nuevaTarjeta)) {
-                String mensajeExito = String.format(
-                        "¡Tarjeta generada exitosamente!\n\n" +
-                                "Tipo: %s %s\n" +
-                                "Número: %s\n" +
-                                "Titular: %s\n" +
-                                "Vencimiento: %s\n" +
-                                "CVV: %s",
-                        tipoTarjeta, red,
-                        CardUtils.formatearNumeroTarjeta(numeroTarjeta),
-                        nuevaTarjeta.getNombreTitular(),
-                        nuevaTarjeta.getFechaFormateada(),
-                        nuevaTarjeta.getCvv()
-                );
-
-                JOptionPane.showMessageDialog(this, mensajeExito,
-                        "Éxito", JOptionPane.INFORMATION_MESSAGE);
-
-                dashboard.mostrarDashboardHome();
-            } else {
-                JOptionPane.showMessageDialog(this,
-                        "Error al generar la tarjeta. Intente nuevamente.",
-                        "Error", JOptionPane.ERROR_MESSAGE);
-            }
-
-        } catch (NumberFormatException e) {
-            JOptionPane.showMessageDialog(this,
-                    "El límite de crédito debe ser un número válido.",
-                    "Error", JOptionPane.ERROR_MESSAGE);
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                    "Error: " + e.getMessage(),
-                    "Error", JOptionPane.ERROR_MESSAGE);
-            e.printStackTrace();
-        }
-    }
+   private void procesarCreacionTarjeta(Card nuevaTarjeta, String tipoTarjeta, String red) {
+      if (this.cardDAO.crearTarjeta(nuevaTarjeta)) {
+         String mensajeExito = String.format(
+               "¡Tarjeta generada exitosamente!\n\nTipo: %s %s\nNúmero: %s\nTitular: %s\nVencimiento: %s\nCVV: %s",
+               tipoTarjeta,
+               red,
+               CardUtils.formatearNumeroTarjeta(nuevaTarjeta.getNumeroTarjeta()),
+               nuevaTarjeta.getNombreTitular(),
+               nuevaTarjeta.getFechaFormateada(),
+               nuevaTarjeta.getCvv());
+         JOptionPane.showMessageDialog(this, mensajeExito, "Éxito", JOptionPane.INFORMATION_MESSAGE);
+         this.dashboard.mostrarDashboardHome();
+      } else {
+         JOptionPane.showMessageDialog(this, "Error al generar la tarjeta. Intente nuevamente.", "Error", JOptionPane.ERROR_MESSAGE);
+      }
+   }
 
     private void actualizarFormulario() {
         String tipoSeleccionado = (String) comboTipoTarjeta.getSelectedItem();
